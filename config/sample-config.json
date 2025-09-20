@@ -1,0 +1,16 @@
+{
+  "cookies": {
+    "session_id": "your_session_id_here",
+    "user_token": "your_user_token_here"
+  },
+  "startUrls": [
+    "https://www.sina.com.cn"
+  ],
+  "excludeUrls": [
+    "/logout",
+    "/admin"
+  ],
+  "depth": 2,
+  "maxCount": 10,
+  "output": "./output"
+}
