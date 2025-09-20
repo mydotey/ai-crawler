@@ -1,6 +1,7 @@
 package com.mydotey.aicrawler.service;
 
 import com.mydotey.aicrawler.config.CrawlConfig;
+
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 import org.slf4j.Logger;
@@ -17,20 +18,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
-public class WebCrawlerService implements AutoCloseable {
-
+public class WebCrawlerService {
     private static final Logger log = LoggerFactory.getLogger(WebCrawlerService.class);
-    private final Playwright playwright = Playwright.create();
     private final Map<String, Boolean> visitedUrls = new ConcurrentHashMap<>();
     private final AtomicInteger crawledCount = new AtomicInteger(0);
 
     public void crawl(CrawlConfig config) {
-        try (Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
+        try (Playwright playwright = Playwright.create()) {
+            Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
             BrowserContext context = browser.newContext();
-
             // Set cookies if provided
             if (config.getCookies() != null && !config.getCookies().isEmpty()) {
-                // Create cookies using BrowserContext.addCookies which accepts a list of Cookie objects
+                // Create cookies using BrowserContext.addCookies which accepts a list of Cookie
+                // objects
                 String domain = extractDomain(config.getStartUrls().get(0));
                 List<com.microsoft.playwright.options.Cookie> cookies = new ArrayList<>();
                 config.getCookies().forEach((name, value) -> {
@@ -52,7 +52,6 @@ public class WebCrawlerService implements AutoCloseable {
                 }
                 crawlUrl(context, startUrl, config, 0, outputDir);
             }
-
         } catch (Exception e) {
             log.error("Crawling failed", e);
         }
@@ -63,7 +62,7 @@ public class WebCrawlerService implements AutoCloseable {
             return;
         }
 
-        String normalizedUrl = normalizeUrl(url);
+        String normalizedUrl = normalizeUrl(url, config);
         if (visitedUrls.putIfAbsent(normalizedUrl, true) != null) {
             return; // Already visited
         }
@@ -116,40 +115,53 @@ public class WebCrawlerService implements AutoCloseable {
         }
     }
 
-    private String normalizeUrl(String url) {
+    private String normalizeUrl(String url, CrawlConfig config) {
         try {
             URI uri = new URI(url);
             String path = uri.getPath();
             if (path == null || path.isEmpty()) {
                 path = "/";
+            } else if (path.endsWith("/")) {
+                path = path.substring(0, path.length() - 1);
+                if (path.isEmpty()) {
+                    path = "/";
+                }
             }
 
-            // Sort query parameters for consistency
-            String query = uri.getQuery();
-            if (query != null) {
-                Map<String, List<String>> params = new TreeMap<>();
-                String[] pairs = query.split("&");
-                for (String pair : pairs) {
-                    String[] keyValue = pair.split("=", 2);
-                    String key = keyValue[0];
-                    String value = keyValue.length > 1 ? keyValue[1] : "";
-                    params.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
-                }
-
-                StringBuilder newQuery = new StringBuilder();
-                for (Map.Entry<String, List<String>> entry : params.entrySet()) {
-                    for (String value : entry.getValue()) {
-                        if (newQuery.length() > 0) {
-                            newQuery.append("&");
+            // Handle query parameters based on config
+            String query = null;
+            if (config.getParams() != null && !config.getParams().isEmpty()) {
+                // Include only specified query parameters
+                Map<String, List<String>> filteredParams = new TreeMap<>();
+                String originalQuery = uri.getQuery();
+                if (originalQuery != null) {
+                    String[] pairs = originalQuery.split("&");
+                    for (String pair : pairs) {
+                        String[] keyValue = pair.split("=", 2);
+                        String key = keyValue[0];
+                        if (config.getParams().contains(key)) {
+                            String value = keyValue.length > 1 ? keyValue[1] : "";
+                            filteredParams.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
                         }
-                        newQuery.append(entry.getKey()).append("=").append(value);
                     }
+
+                    StringBuilder newQuery = new StringBuilder();
+                    for (Map.Entry<String, List<String>> entry : filteredParams.entrySet()) {
+                        for (String value : entry.getValue()) {
+                            if (newQuery.length() > 0) {
+                                newQuery.append("&");
+                            }
+                            newQuery.append(entry.getKey()).append("=").append(value);
+                        }
+                    }
+                    query = newQuery.toString();
                 }
-                query = newQuery.toString();
             }
 
-            return new URI(uri.getScheme(), uri.getUserInfo(), uri.getHost(), uri.getPort(),
-                          path, query, uri.getFragment()).toString();
+            // Don't preserve scheme (ignore it)
+            // Use filtered query parameters if specified in config
+            return new URI(null, null, uri.getHost(), uri.getPort(),
+                    path, query, null).toString();
         } catch (URISyntaxException e) {
             return url; // Return original if normalization fails
         }
@@ -223,14 +235,5 @@ public class WebCrawlerService implements AutoCloseable {
         }
 
         return String.format("%s_%d.pdf", cleanTitle, count);
-    }
-
-    @Override
-    public void close() {
-        try {
-            playwright.close();
-        } catch (Exception e) {
-            log.warn("Failed to close Playwright: {}", e.getMessage());
-        }
     }
 }

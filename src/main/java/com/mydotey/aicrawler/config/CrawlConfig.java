@@ -7,6 +7,7 @@ public class CrawlConfig {
     private Map<String, String> cookies;
     private List<String> startUrls;
     private List<String> excludeUrls;
+    private List<String> params;
     private int depth = 1;
     private int maxCount = 100;
     private String output = "./output";
@@ -57,5 +58,13 @@ public class CrawlConfig {
 
     public void setOutput(String output) {
         this.output = output;
+    }
+
+    public List<String> getParams() {
+        return params;
+    }
+
+    public void setParams(List<String> params) {
+        this.params = params;
     }
 }
